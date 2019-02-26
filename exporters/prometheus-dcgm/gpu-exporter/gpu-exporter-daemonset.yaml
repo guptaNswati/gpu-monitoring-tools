@@ -1,0 +1,76 @@
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: gpu-exporter
+  namespace: kube-system
+spec:
+  template:
+    metadata:
+      labels:
+        app: gpu-exporter
+      name: gpu-exporter
+    spec:
+      containers:
+      - image: prom/prometheus:v2.7.1
+        name: prometheus
+        args:
+        - "--config.file=/etc/prometheus/prometheus.yaml"
+        ports:
+        - containerPort: 9090
+          hostPort: 9090
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/prometheus
+      - image: containerdevk8s/dcgm-exporter-http:1.4.6
+        name: gpu-exporter
+        ports:
+        - name: metrics
+          containerPort: 9400
+          hostPort: 9400
+        resources:
+          requests:
+            memory: 30Mi
+            cpu: 100m
+          limits:
+            memory: 50Mi
+            cpu: 200m
+        volumeMounts:
+        - name: gpu-collector
+          readOnly: true
+          mountPath: /run/dcgm  
+      - image: nvidia/pod-devices-exporter:1.4.6-dcgm
+        name: nvidia-dcgm-pod-exporter
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+        volumeMounts:
+        - name: pod-device-resources
+          readOnly: true
+          mountPath: /var/lib/kubelet/pod-resources
+        - name: device-metrics
+          readOnly: true
+          mountPath: /run/prometheus
+        - name: gpu-collector
+          mountPath: /run/dcgm
+      - image: nvidia/dcgm-exporter:1.4.6
+        name: nvidia-dcgm-exporter
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+        volumeMounts:
+        - name: device-metrics
+          mountPath: /run/prometheus
+
+      volumes:
+      - name: config-volume
+        configMap:
+          name: prometheus-config
+      - name: pod-device-resources
+        hostPath:
+          path: /var/lib/kubelet/pod-resources
+      - name: device-metrics
+        emptyDir:
+          medium: Memory
+      - name: gpu-collector
+        emptyDir:
+          medium: Memory
