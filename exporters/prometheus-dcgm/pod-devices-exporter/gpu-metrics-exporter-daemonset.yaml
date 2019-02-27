@@ -1,0 +1,58 @@
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: gpu-metrics-exporter
+  namespace: kube-system
+spec:
+  template:
+    metadata:
+      labels:
+        app: gpu-metrics-exporter
+      name: gpu-metrics-exporter
+    spec:
+      containers:
+      - image: prom/prometheus:v2.7.1
+        name: prometheus
+        args:
+        - "--config.file=/etc/prometheus/prometheus.yaml"
+        ports:
+        - containerPort: 9090
+          hostPort: 9090
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/prometheus
+      - image: containerdevk8s/gpu-metrics-exporter:v1.0.0-alpha
+        name: nvidia-gpu-metrics-exporter
+        ports:
+        - name: gpu-metrics
+          containerPort: 9400
+          hostPort: 9400
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+        volumeMounts:
+        - name: pod-device-resources
+          readOnly: true
+          mountPath: /var/lib/kubelet/pod-resources
+        - name: device-metrics
+          readOnly: true
+          mountPath: /run/prometheus
+      - image: nvidia/dcgm-exporter:1.4.6
+        name: nvidia-dcgm-exporter
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+        volumeMounts:
+        - name: device-metrics
+          mountPath: /run/prometheus
+
+      volumes:
+      - name: config-volume
+        configMap:
+          name: prometheus-config
+      - name: pod-device-resources
+        hostPath:
+          path: /var/lib/kubelet/pod-resources
+      - name: device-metrics
+        emptyDir:
+          medium: Memory
