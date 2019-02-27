@@ -1,72 +1,39 @@
-// Copyright (c) 2018, NVIDIA CORPORATION. All rights reserved.
-
 package main
 
 import (
 	"flag"
 	"syscall"
-	"time"
 
 	"github.com/golang/glog"
-	"gopkg.in/fsnotify/fsnotify.v1"
 )
 
-const (
-	socketPath        = "/var/lib/kubelet/pod-resources/kubelet.sock"
-	gpuMetricsPath    = "/run/prometheus/"
-	gpuMetrics        = gpuMetricsPath + "dcgm.prom"
-	gpuPodMetricsPath = "/run/dcgm/"
-	gpuPodMetrics     = gpuPodMetricsPath + "dcgm-pod.prom"
-)
+// http port serving metrics
+const port = ":9400"
 
+// res: curl localhost:9400/gpu/metrics
 func main() {
 	defer glog.Flush()
 	flag.Parse()
 
-	glog.Info("Starting FS watcher.")
-	watcher, err := watchDir(gpuMetricsPath)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	defer watcher.Close()
-
 	glog.Info("Starting OS watcher.")
 	sigs := sigWatcher(syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	// create gpuPodMetrics dir
-	err = createMetricsDir(gpuPodMetricsPath)
-	if err != nil {
-		glog.Fatal(err)
-	}
+	// watch and write gpu metrics to dcgm-pod.prom
+	go func() {
+		glog.Info("Starting FS watcher.")
+		watchAndWriteGPUmetrics()
+	}()
 
-	for {
-		select {
-		case event := <-watcher.Events:
-			if event.Name == gpuMetrics && event.Op&fsnotify.Create == fsnotify.Create {
-				glog.V(1).Infof("inotify: %s created, now adding device pod information.", gpuMetrics)
-				podMap, err := getDevicePodInfo(socketPath)
-				if err != nil {
-					glog.Error(err)
-					return
-				}
-				err = addPodInfoToMetrics(gpuPodMetricsPath, gpuMetrics, gpuPodMetrics, podMap)
-				if err != nil {
-					glog.Error(err)
-					return
-				}
-			}
+	server := newHttpServer(port)
+	defer stopHttp(server)
 
-		case err := <-watcher.Errors:
-			glog.Errorf("inotify: %s", err)
+	// expose metrics to localhost:9400/gpu/metrics
+	go func() {
+		glog.V(1).Infof("Running http server on localhost%s", port)
+		startHttp(server)
+	}()
 
-		// exit if there are no events for 20 seconds.
-		case <-time.After(time.Second * 20):
-			glog.Fatal("No events received. Make sure \"dcgm-exporter\" is running")
-			return
-
-		case sig := <-sigs:
-			glog.V(2).Infof("Received signal \"%v\", shutting down.", sig)
-			return
-		}
-	}
+	sig := <-sigs
+	glog.V(2).Infof("Received signal \"%v\", shutting down.", sig)
+	return
 }

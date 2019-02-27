@@ -13,12 +13,12 @@ import (
 )
 
 const (
-	podResourcesTimeout = 10 * time.Second
+	connectionTimeout   = 10 * time.Second
 	podResourcesMaxSize = 1024 * 1024 * 16 // 16 Mb
 )
 
 func connectToServer(socket string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), podResourcesTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), connectionTimeout)
 	defer cancel()
 
 	conn, err := grpc.DialContext(ctx, socket, grpc.WithInsecure(), grpc.WithBlock(),
@@ -42,7 +42,7 @@ func getListOfPods(socket string) (*podresourcesapi.ListPodResourcesResponse, er
 
 	client := podresourcesapi.NewPodResourcesListerClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), podResourcesTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), connectionTimeout)
 	defer cancel()
 
 	resp, err := client.List(ctx, &podresourcesapi.ListPodResourcesRequest{})
